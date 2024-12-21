@@ -26,9 +26,10 @@ import kalshi_python
 import uuid
 import _uuid
 import time
-
+from dotenv import load_dotenv
 import os
-os.system('cls' if os.name == 'nt' else 'clear')
+from dotenv import load_dotenv, find_dotenv
+from pathlib import Path
 
 #==================================================================
 # Get current Rotten Tomatoes score 
@@ -59,21 +60,21 @@ review_count = int(review_element.text.strip().replace(" Reviews", "")) if revie
 print(f'Review Count: {review_count}')
 
 #===================================================================
-# Access Kalshi client with API key
-
-
-def load_private_key_from_file(private_key_path):
-    with open(private_key_path, "rb") as key_file:
-        private_key = serialization.load_pem_private_key(
-            key_file.read(),
-            password=None,  # or provide a password if your key is encrypted
-            backend=default_backend()
-        )
-    return private_key
+# Access Kalshi client with API key in .env
 
 key_id = "039347d9-0f10-46a8-80ab-e353f31080a4"
-private_key_path = "C:\\Users\\19413\\Downloads\\Nemmo2k.txt"
-kalshi_client = KalshiClient(key_id=key_id, private_key=load_private_key_from_file(private_key_path))
+
+
+
+load_dotenv(Path("C:/Users/19413/.vscode/Python-Work/Rotten-Tomatoes/myenv/.env"))
+kalshi_key = os.getenv("KALSHI_PRIVATE_KEY")
+private_key = serialization.load_pem_private_key(
+    kalshi_key.encode(),  # Convert the string to bytes
+    password=None
+)
+
+kalshi_client = KalshiClient(key_id=key_id, private_key=private_key)
+
 
 #==================================================================
 # Check Exchange Status and balance
@@ -277,7 +278,6 @@ print(my_positions)
 # Extract the 'settlements' list
 settlements = my_positions.get('settlements', [])
 
-# Define the columns you want in the DataFrame
 columns = ["ticker", "market_result", "yes_count", "yes_total_cost", 
            "no_count", "no_total_cost", "revenue", "settled_time"]
 
@@ -289,8 +289,6 @@ for settlement in settlements:
     row = {col: settlement.get(col, None) for col in columns}
     processed_data.append(row)
 
-# Create the DataFrame
-df = pd.DataFrame(processed_data)
+my_positions_df = pd.DataFrame(processed_data)
 
-# Display the DataFrame
-print(df)
+print(my_positions_df)
