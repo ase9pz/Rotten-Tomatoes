@@ -28,7 +28,7 @@ while True:
                 #==================================================================
                 # Get current Rotten Tomatoes score 
 
-                url = f"https://www.rottentomatoes.com/m/the_damned_2024_2?nocache={int(time.time())}"
+                url = f"https://www.rottentomatoes.com/tv/severance/s02?nocache={int(time.time())}"
 
                 headers = {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
@@ -62,6 +62,7 @@ while True:
 
                 key_id = "682d265a-6f68-460e-9668-5a3721eef16d"
                 private_key_path = "C:/Users/19413/Downloads/Nemmo4k.txt"
+                #private_key_path = "/home/ec2-user/Trading/Nemmo4k.txt"
                 kalshi_client = KalshiClient(key_id=key_id, private_key=load_private_key_from_file(private_key_path))
 
 
@@ -76,7 +77,7 @@ while True:
                 print(balance_value)
 
                 # Calculate unit size and round to the nearest whole integer
-                unit_size = round(balance_value / 15000)
+                unit_size = 1
 
                 # Print the rounded unit size
                 print(f"Unit size: {unit_size}")
@@ -84,7 +85,7 @@ while True:
 
                 #=================================================================
                 # Create a data frame with every market for our event
-                eventTicker = 'KXRTTHEDAMNED'
+                eventTicker = 'KXRTSEVERANCES2'
                 eventResponse = kalshi_client.get_event(event_ticker=eventTicker)
 
                 data = kalshi_client.get_event(event_ticker= eventTicker)
@@ -103,12 +104,9 @@ while True:
                             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
                 markets_df = df  
-
                 #===================================================================================
                 # Calculate my odds by running combinatorics script
 
-                initial_reviews = review_count
-                initial_rating = tomatometer_score / 100
                 my_odds_df = markets_df.copy()
                 my_yes_odds_list = []
 
@@ -117,8 +115,8 @@ while True:
                     initial_reviews = int(review_count)
                     initial_rating = int(tomatometer_score)/100
 
-                    def bucket_chance(final_reviews):
-                        additional_reviews = final_reviews - initial_reviews     
+                    def bucket_chance(exact_final_reviews):
+                        additional_reviews = exact_final_reviews - initial_reviews     
                         num_pos_reviews = round(initial_rating * initial_reviews)  #
 
                         def binomial_probability(n, k, p):
@@ -128,7 +126,7 @@ while True:
 
                         for future_pos_reviews in range(0, additional_reviews + 1):
                             final_pos_reviews = num_pos_reviews + future_pos_reviews
-                            final_rating = final_pos_reviews / final_reviews
+                            final_rating = final_pos_reviews / exact_final_reviews
 
                             probability = binomial_probability(
                                 additional_reviews, future_pos_reviews, initial_rating
@@ -140,19 +138,14 @@ while True:
 
                         return total_probability
 
-                    range_min = initial_reviews
-                    review_range = range(initial_reviews, 50)  
-                    total_prob_sum = 0  
-                    count = 0  
+                    exact_final_reviews = 45 
+                   
 
-                    for final_reviews in review_range:
-                        prob = bucket_chance(final_reviews)
-                        total_prob_sum += prob  
-                        count += 1  
+               
+                    prob = bucket_chance(exact_final_reviews)
+                   
 
-                    average_probability = total_prob_sum / count
-                    my_yes_odds_list.append(round(average_probability*100, 3))
-
+                    my_yes_odds_list.append(round(prob*100, 3))
                 my_no_odds_list = []                #Take complement of each "yes" chance to get theoretical "no" chance
                 for i in my_yes_odds_list:
                     my_no_odds_list.append(100 - i)
@@ -211,30 +204,43 @@ while True:
                 bids_asks_df = complete_odds_df.copy()
                 bids_asks_df['yes bid'] = yes_bids_list
                 bids_asks_df['no bid'] = no_bids_list
-    
+
+                #================================================================
+                # Iterate through complete odds df and identify trades with edge 
+
+                yes_edge = complete_odds_df['my yes odds'] - complete_odds_df['yes book odds']
+                no_edge = complete_odds_df['my no odds'] - complete_odds_df['no book odds']
+
+                edge_df = bids_asks_df.copy()
+                edge_df['yes edge'] = yes_edge
+                edge_df['no edge'] = no_edge 
                 #============================================================
                 # add current open positions 
                 my_positions = kalshi_client.get_positions()
                 # Filter for positions where "position" is not 0
                 filtered_positions = [
-                    {"ticker": position["ticker"], "position": position["position"]}
-                    for position in my_positions["market_positions"]
-                    if position["position"] != 0
+                    {'ticker': position['ticker'], 'position': position['position']}
+                    for position in my_positions['market_positions']
+                    if position['position'] != 0
                 ]
+                
+                trade_df = edge_df.copy()
+                
+                # Ensure `my_positions` is handled properly even if it's empty
+                if not filtered_positions:
+                    my_positions_df = pd.DataFrame(columns=["ticker", "position"])
+                else:
+                    my_positions_df = pd.DataFrame(filtered_positions)
 
+                print(trade_df)
 
-                trade_df = complete_odds_df.copy()
-
-                my_positions_df = pd.DataFrame(filtered_positions)
-
+                # Merge `my_positions_df` with `trade_df`
                 trade_df = trade_df.merge(
                     my_positions_df, on="ticker", how="left"
                 )
-
                 #========================================================================================
                 # Get active resting orders 
                 active_orders = kalshi_client.get_orders()
-
                 resting_orders = {}
                 for order in active_orders["orders"]:
                     if order["status"] != "executed": 
@@ -258,7 +264,7 @@ while True:
                                     type='limit',
                                     yes_price=row['yes book odds'] -1,
                                     ticker=row['ticker'],
-                                    expiration_ts=int(time.time())+45
+                                    expiration_ts=int(time.time())+1750
                             )
                             print(f'Small yes edge: {orderResponse}')
 
@@ -272,7 +278,7 @@ while True:
                                     type='limit',
                                     yes_price=row['yes book odds'] -1,
                                     ticker=row['ticker'],
-                                    expiration_ts=int(time.time())+45
+                                    expiration_ts=int(time.time())+1750
                             )
                             print(f'Moderate yes edge: {orderResponse}')
 
@@ -286,93 +292,99 @@ while True:
                                     type='limit',
                                     yes_price=row['yes book odds'] -1,
                                     ticker=row['ticker'],
-                                    expiration_ts=int(time.time())+45
+                                    expiration_ts=int(time.time())+1750
                             )
                             print(f'Huge yes edge: {orderResponse}')
                             
                 # Opening no contracts
                 for _, row in trade_df.iterrows():
                         if 5 < row['no edge'] < 10  and row['resting orders'] == 0 and (abs(row['position']) <= 20 or pd.isna(row['position'])):
-                            orderUuid = str(uuid.uuid4())
-                            orderResponse = kalshi_client.create_order(
-                                    client_order_id=orderUuid,
-                                    side="no",
-                                    action='buy',
-                                    count=5*unit_size,
-                                    type='limit',
-                                    no_price=row['no book odds'] -1,
-                                    ticker=row['ticker'],
-                                    expiration_ts=int(time.time())+45
-                            )
-                            print(f'Small no edge: {orderResponse}')
+                            if row['position'] <= 0:
+                                orderUuid = str(uuid.uuid4())
+                                orderResponse = kalshi_client.create_order(
+                                        client_order_id=orderUuid,
+                                        side="no",
+                                        action='buy',
+                                        count=5*unit_size,
+                                        type='limit',
+                                        no_price=row['no book odds'] - 1,
+                                        ticker=row['ticker'],
+                                        expiration_ts=int(time.time())+1750
+                                )
+                                print(f'Small no edge bought:{orderResponse}')
+                            if row['position'] > 0:
+                                orderUuid = str(uuid.uuid4())
+                                orderResponse = kalshi_client.create_order(
+                                        client_order_id=orderUuid,
+                                        side="yes",
+                                        action='sell',
+                                        count=5*unit_size,
+                                        type='limit',
+                                        yes_price=row['yes book odds'] - 1,
+                                        ticker=row['ticker'],
+                                        expiration_ts=int(time.time())+1750
+                                )
+                                print(f'Small no edge, sold yes position :{orderResponse}')
 
                         if 10 < row['no edge'] < 20  and row['resting orders'] == 0 and (abs(row['position']) <= 30 or pd.isna(row['position'])):
-                            orderUuid = str(uuid.uuid4())
-                            orderResponse = kalshi_client.create_order(
-                                    client_order_id=orderUuid,
-                                    side="no",
-                                    action='buy',
-                                    count=5*unit_size,
-                                    type='limit',
-                                    no_price=row['no book odds'] -1,
-                                    ticker=row['ticker'],
-                                    expiration_ts=int(time.time())+45
-                            )
-                            print(f'Moderate no edge: {orderResponse}')
+                            if row['position'] <= 0:
+                                orderUuid = str(uuid.uuid4())
+                                orderResponse = kalshi_client.create_order(
+                                        client_order_id=orderUuid,
+                                        side="no",
+                                        action='buy',
+                                        count=5*unit_size,
+                                        type='limit',
+                                        no_price=row['no book odds'] - 1,
+                                        ticker=row['ticker'],
+                                        expiration_ts=int(time.time())+1750
+                                )
+                                print(f'moderate no edge bought:{orderResponse}')
+                            if row['position'] > 0:
+                                orderUuid = str(uuid.uuid4())
+                                orderResponse = kalshi_client.create_order(
+                                        client_order_id=orderUuid,
+                                        side="yes",
+                                        action='sell',
+                                        count=5*unit_size,
+                                        type='limit',
+                                        yes_price=row['yes book odds'] - 1,
+                                        ticker=row['ticker'],
+                                        expiration_ts=int(time.time())+1750
+                                )
+                                print(f'moderate no edge, sold yes position :{orderResponse}')
                             
                         if 20 < row['no edge'] and row['resting orders'] == 0 and (abs(row['position']) <= 40 or pd.isna(row['position'])):
-                            orderUuid = str(uuid.uuid4())
-                            orderResponse = kalshi_client.create_order(
-                                    client_order_id=orderUuid,
-                                    side="no",
-                                    action='buy',
-                                    count=5*unit_size,
-                                    type='limit',
-                                    no_price=row['no book odds'] -1,
-                                    ticker=row['ticker'],
-                                    expiration_ts=int(time.time())+45
-                            )
-                            print(f'Huge no edge: {orderResponse}')
+                            if row['position'] <= 0:
+                                orderUuid = str(uuid.uuid4())
+                                orderResponse = kalshi_client.create_order(
+                                        client_order_id=orderUuid,
+                                        side="no",
+                                        action='buy',
+                                        count=5*unit_size,
+                                        type='limit',
+                                        no_price=row['no book odds'] - 1,
+                                        ticker=row['ticker'],
+                                        expiration_ts=int(time.time())+1750
+                                )
+                                print(f'large no edge bought:{orderResponse}')
+                            if row['position'] > 0:
+                                orderUuid = str(uuid.uuid4())
+                                orderResponse = kalshi_client.create_order(
+                                        client_order_id=orderUuid,
+                                        side="yes",
+                                        action='sell',
+                                        count=5*unit_size,
+                                        type='limit',
+                                        yes_price=row['yes book odds'] - 1,
+                                        ticker=row['ticker'],
+                                        expiration_ts=int(time.time())+1750
+                                )
+                                print(f'large no edge, sold yes position :{orderResponse}')
                             
-
-                #=======================================================================
-                #Go through trade_list and place limit orders to close positions
-                for _, row in trade_df.iterrows():
-                    if row['position'] > 0 and  row['resting orders'] != row['position'] and (row['yes edge'] < 3 and row['no edge'] < 3):  #positive positions means owning "Yes" contracts
-                        position = row['position']                                                                                       #also check for resting orders
-                        if row['yes bid'] != 99 and row['yes bid'] > row['my yes odds'] - 5:
-                            orderUuid = str(uuid.uuid4())
-                            orderResponse = kalshi_client.create_order(
-                                client_order_id=orderUuid,
-                                side = 'yes',
-                                action='sell',
-                                count = int(position),
-                                type = 'limit',
-                                yes_price = row['yes book odds']-1,
-                                ticker = row['ticker'],
-                                expiration_ts=int(time.time())+45
-                            
-                            )
-                            print(f'limit sell:{orderResponse}')
-                    if row['position'] < 0 and row['no edge'] < 3 and row['resting orders'] != abs(row['position']):  #positive positions means owning "Yes" contracts
-                        position = row['position']  
-                        if row['yes bid'] != 99 and row['no bid'] > row['my no odds'] - 5:
-                            orderUuid = str(uuid.uuid4())
-                            orderResponse = kalshi_client.create_order(
-                                client_order_id=orderUuid,
-                                side = 'no',
-                                action='sell',
-                                count = abs(int(position)),
-                                type = 'limit',
-                                no_price = row['no book odds']-1,
-                                ticker = row['ticker'],
-                                expiration_ts=int(time.time())+45
-                            
-                            )
-                            print(f'limit sell:{orderResponse}')
 
         except Exception as e:
         # Log any errors to prevent the script from crashing
                 print(f"An error occurred: {e}")
 
-        time.sleep(60)
+        time.sleep(1800)
