@@ -265,8 +265,8 @@ while True:
         min_reviews = 50
         max_reviews = 100
         initial_reviews = int(review_count)
-        initial_rating = 0.95
-        bucket_threshold = 0.955  
+        initial_rating = 0.97
+        bucket_threshold = 0.975  
         results = calculate_bucket_chances(min_reviews, max_reviews, initial_reviews, initial_rating, bucket_threshold)
 
         # Print results
