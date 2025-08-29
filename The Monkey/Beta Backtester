@@ -1,0 +1,334 @@
+import pandas as pd
+import numpy as np
+from typing import List, Tuple
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy.stats as stats
+from datetime import datetime
+import requests
+import pandas as pd
+import math
+import time
+import re
+from bs4 import BeautifulSoup
+from kalshi_client.client import KalshiClient
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
+from typing import List, Tuple, Optional
+import uuid
+import numpy as np
+
+def plot_tomatometer_distributions(tomatometer_score: float, review_count: int, final_review_count: int, check_ranges=None):
+    """
+    Vectorized version using Beta-Binomial distribution for efficient simulation.
+    """
+    # Convert score to fraction and calculate initial Beta parameters
+    tomatometer_fraction = tomatometer_score / 100.0
+    alpha0 = (tomatometer_fraction * review_count) + 1
+    beta0 = ((1 - tomatometer_fraction) * review_count) + 1
+
+    # Plot current Beta distribution (same as before)
+    # x = np.linspace(0, 1, 1000)
+    # current_pdf = stats.beta.pdf(x, alpha0, beta0)
+    # plt.figure(figsize=(8, 5))
+    # plt.plot(x * 100, current_pdf, label=f"Current Beta({alpha0:.1f}, {beta0:.1f})", color='b')
+    # plt.axvline(tomatometer_score, color='r', linestyle="--", label=f"Observed {tomatometer_score}%")
+    # plt.xlabel("Tomatometer Score (%)")
+    # plt.ylabel("Probability Density")
+    # plt.title("Current True Tomatometer Probability Distribution")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.show()
+
+    # Vectorized simulation using Beta-Binomial distribution
+    num_simulations = 50000
+    additional_reviews = final_review_count - review_count
+    
+    if additional_reviews <= 0:
+        final_scores = np.full(num_simulations, tomatometer_score)
+    else:
+        # Generate simulated positive reviews in one vectorized operation
+        simulated_positives = stats.betabinom.rvs(
+            n=additional_reviews,
+            a=alpha0,
+            b=beta0,
+            size=num_simulations
+        )
+        
+        # Calculate final scores using vectorized operations
+        total_positives = (alpha0 - 1) + simulated_positives  # alpha0-1 = current positive reviews
+        final_scores = (total_positives / final_review_count) * 100
+
+
+
+    if check_ranges:
+        zero_ranges = []
+        for lower, upper in check_ranges:
+            prob_mass = np.mean((final_scores >= lower) & (final_scores < upper))
+            zero_ranges.append(prob_mass)
+        return zero_ranges
+
+    # -------------------------------------------
+    # 2. Stepwise simulation of additional reviews.
+    # -------------------------------------------
+    num_simulations = 50000
+    final_scores = np.zeros(num_simulations)
+    
+    # Number of additional reviews to simulate
+    additional_reviews = final_review_count - review_count
+
+    # If no additional reviews are coming in, then the final score is exactly the observed score.
+    if additional_reviews <= 0:
+        final_scores.fill(tomatometer_score)
+    else:
+        # For each simulation, update the Beta parameters review by review.
+        for i in range(num_simulations):
+            # Start with the current parameters
+            alpha_sim = alpha0
+            beta_sim = beta0
+            # Stepwise update: simulate one review at a time.
+            for _ in range(additional_reviews):
+                # The predictive probability of a positive review is the mean of the current Beta.
+                p_positive = alpha_sim / (alpha_sim + beta_sim)
+                # Sample one new review outcome from a Bernoulli trial.
+                if np.random.rand() < p_positive:
+                    alpha_sim += 1  # positive review observed
+                else:
+                    beta_sim += 1   # negative review observed
+            # The final number of positive reviews (excluding the prior) is (alpha_sim - 1),
+            # and total reviews is final_review_count.
+            final_score_fraction = (alpha_sim - 1) / (final_review_count)
+            final_scores[i] = final_score_fraction * 100  # convert to percentage
+
+    
+
+    # -------------------------------------------
+    # 4. Compute probability mass within user-defined ranges.
+    # -------------------------------------------
+    if check_ranges:
+        #print("Probability mass within defined tomatometer score ranges (final distribution):")
+        zero_ranges = []
+        for (lower, upper) in check_ranges:
+            # Calculate fraction of simulations with final score in the range [lower, upper)
+            prob_mass = float(np.mean((final_scores >= lower) & (final_scores < upper)))
+            zero_ranges.append(prob_mass)
+            #print(f"Between {lower}-{upper}%: {prob_mass * 100:.2f}%")
+        return zero_ranges
+    
+
+
+
+
+# -------------------------------------------
+# Kelly Criterion Calculations
+# -------------------------------------------
+
+def calculate_kelly_fraction(model_prob: float, market_price: float) -> float:
+    """
+    Calculates Kelly fraction for binary outcomes.
+    Returns 0 if no edge exists.
+    """
+    if market_price <= 0 or market_price >= 100:
+        return 0.0
+    
+    market_prob = market_price / 100
+    edge = model_prob - market_prob
+    
+    # Only trade if we have positive edge
+    if edge <= 0:
+        return 0.0
+    
+    # Calculate net decimal odds
+    b = (100 - market_price) / market_price  # Net odds received
+    
+    # Kelly formula
+    raw_kelly = (b * model_prob - (1 - model_prob)) / b
+    #print(f"Raw: {raw_kelly*100:.1f}% → Half: {raw_kelly*50:.1f}%")  # Debug line
+    return max(0.0, min(0.05, raw_kelly * 0.5))
+
+def get_position_size(kelly_fraction: float, balance: int, price: int) -> int:
+    """Convert Kelly fraction to contract count"""
+    if kelly_fraction <= 0 or price <= 0:
+        return 0
+    
+    # Calculate position size in cents
+    risk_amount = kelly_fraction * balance
+    return max(1, int(risk_amount // price))
+# Initialize logging
+trade_log = []
+
+def check_and_close_positions(group, check_ranges, zero_ranges, current_time):
+    global balance, open_positions, trade_log
+    positions_to_remove = []
+    
+    for pos in open_positions:
+        # Find current market data for this position
+        market_data = group[group['market'] == pos['ticker']]
+        if market_data.empty:
+            continue
+            
+        # Get current prices and threshold
+        current_row = market_data.iloc[0]
+        yes_ask = eval(current_row['yes_ask'])['open']
+        no_ask = 100 - eval(current_row['yes_bid'])['open']
+        threshold = int(pos['ticker'].split('-')[-1])
+        
+        # Find corresponding probability range
+        index = next((i for i, (_, upper) in enumerate(check_ranges) 
+                    if upper == threshold), None)
+        if index is None:
+            continue
+            
+        # Calculate current probabilities
+        current_model_prob = 1 - zero_ranges[index]
+        current_market_prob = yes_ask / 100 if pos['side'] == 'yes' else no_ask / 100
+        
+        # Check exit condition
+        if (pos['side'] == 'yes' and current_model_prob <= current_market_prob) or \
+           (pos['side'] == 'no' and (1 - current_model_prob) <= current_market_prob):
+            
+            # Calculate exit price and P&L
+            exit_price = yes_ask if pos['side'] == 'yes' else no_ask
+            proceeds = pos['quantity'] * exit_price
+            balance += proceeds
+            
+            # Log the exit
+            trade_log.append({
+                'timestamp': current_time,
+                'ticker': pos['ticker'],
+                'side': pos['side'],
+                'action': 'sell',
+                'quantity': pos['quantity'],
+                'price': exit_price,
+                'model_prob': current_model_prob,
+                'market_prob': current_market_prob,
+                'balance_after': balance / 100
+            })
+            
+            positions_to_remove.append(pos)
+            print(f"Closed {pos['side']} position for {pos['ticker']} at {exit_price}c")
+
+    # Remove closed positions
+    for pos in positions_to_remove:
+        open_positions.remove(pos)
+
+# -------------------------------------------
+# Backtester Configuration
+# -------------------------------------------
+
+open_positions = []
+trade_log = []
+INITIAL_BALANCE = 50000  # In cents ($500.00)
+balance = INITIAL_BALANCE
+highest_review_count = 0
+# -------------------------------------------
+# Modified Backtest Processing
+# -------------------------------------------
+def process_backtest():
+    global balance, highest_review_count, open_positions
+    balance = INITIAL_BALANCE  # Reset balance for each run
+    highest_review_count = 0
+    open_positions = []
+    
+    df = pd.read_csv("the_monkey_market_data.csv")
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df = df.sort_values('timestamp')
+    
+    for time, group in df.groupby('timestamp'):
+        
+        # Get current market state
+        current_row = group.iloc[0]
+        tomatometer_score = current_row['Score']
+        review_count = current_row['Review_Count']
+        
+        # Skip invalid data
+        if pd.isna(tomatometer_score):
+            continue
+
+        # Calculate probabilities for all thresholds
+        check_ranges = [(0, int(row['market'].split('-')[-1])) 
+                       for _, row in group.iterrows()]
+        zero_ranges = plot_tomatometer_distributions(
+            tomatometer_score=tomatometer_score,
+            review_count=review_count,
+            final_review_count=130,
+            check_ranges=check_ranges
+        )
+        
+        # Check and close positions before new trades
+        check_and_close_positions(group, check_ranges, zero_ranges, time)
+        
+        # Process new trades if new reviews
+        if review_count > highest_review_count:
+            print(f"New review detected! Previous: {highest_review_count}, Current: {review_count}")
+            highest_review_count = review_count
+        
+            for i, row in enumerate(group.iterrows()):
+                row = row[1]  # Get pandas Series
+                threshold = check_ranges[i][1]
+                yes_ask = eval(row['yes_ask'])['open']
+                no_ask = 100 - eval(row['yes_bid'])['open']
+                model_prob_yes = 1 - zero_ranges[i]
+                
+                # Calculate positions
+                kelly_yes = calculate_kelly_fraction(model_prob_yes, yes_ask)
+                yes_position = get_position_size(kelly_yes, balance, yes_ask)
+                
+                kelly_no = calculate_kelly_fraction(1 - model_prob_yes, no_ask)
+                no_position = get_position_size(kelly_no, balance, no_ask)
+                
+                # Execute YES trades
+                if yes_position > 0 and balance >= yes_position * yes_ask:
+                    balance -= yes_position * yes_ask
+                    open_positions.append({
+                        'ticker': row['market'],
+                        'side': 'yes',
+                        'quantity': yes_position,
+                        'entry_price': yes_ask
+                    })
+                    trade_log.append({
+                        'timestamp': time,
+                        'ticker': row['market'],
+                        'side': 'yes',
+                        'action': 'buy',
+                        'quantity': yes_position,
+                        'price': yes_ask,
+                        'model_prob': model_prob_yes,
+                        'market_prob': yes_ask / 100,
+                        'balance_after': balance / 100
+                    })
+                
+                # Execute NO trades
+                if no_position > 0 and balance >= no_position * no_ask:
+                    balance -= no_position * no_ask
+                    open_positions.append({
+                        'ticker': row['market'],
+                        'side': 'no',
+                        'quantity': no_position,
+                        'entry_price': no_ask
+                    })
+                    trade_log.append({
+                        'timestamp': time,
+                        'ticker': row['market'],
+                        'side': 'no',
+                        'action': 'buy',
+                        'quantity': no_position,
+                        'price': no_ask,
+                        'model_prob': 1 - model_prob_yes,
+                        'market_prob': no_ask / 100,
+                        'balance_after': balance / 100
+                    })
+
+    # Close any remaining positions at end of backtest
+    print("\nClosing all remaining positions at end of backtest...")
+    final_group = df[df['timestamp'] == df['timestamp'].max()]
+    check_and_close_positions(final_group, check_ranges, zero_ranges, df['timestamp'].max())
+    
+    # Save results
+    trade_df = pd.DataFrame(trade_log)
+    trade_df.to_csv('backtest_trade_log.csv', index=False)
+    print(f"Final balance: ${balance/100:.2f}")
+    return trade_df
+
+if __name__ == "__main__":
+    process_backtest()
