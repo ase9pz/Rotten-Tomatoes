@@ -1,0 +1,28 @@
+# Core scientific computing and data analysis
+numpy>=1.21.0
+pandas>=1.3.0
+scipy>=1.7.0
+
+# Web scraping and HTTP requests
+requests>=2.25.0
+beautifulsoup4>=4.9.0
+
+# Data visualization
+matplotlib>=3.4.0
+
+# Cryptography for Kalshi API
+cryptography>=3.4.0
+
+# Kalshi API client
+kalshi-client>=1.0.0
+
+# Jupyter notebook support (optional)
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Type hints support
+typing-extensions>=3.10.0
+
+# Additional utilities
+lxml>=4.6.0
+html5lib>=1.1

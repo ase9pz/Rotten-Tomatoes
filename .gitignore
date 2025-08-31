@@ -1,74 +1,26 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# Ignore everything by default
+*
 
-# C extensions
-*.so
+# Allow only specific files to be tracked
+!README.md
+!LICENSE
+!requirements.txt
+!functions.py
+!Example_Workflow.ipynb
 
-# Distribution / packaging
-.Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-*.egg-info/
-.installed.cfg
-*.egg
+# Allow directories but ignore their contents
+!*/
+!*/.gitkeep
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# mypy
-.mypy_cache/
-.dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# VS Code
-.vscode/
-
-# Mac
+# Always ignore these regardless
 .DS_Store
-
-# Virtual environments
-.venv/
-myenv/
-
-# Sensitive files
-*.pem
+*.pyc
+__pycache__/
+*.log
+.env
 *.key
-*.txt 
+*.pem
+myenv/
+Scripts/
+The Monkey/
+Public/ 
