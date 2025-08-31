@@ -17,7 +17,6 @@ Critic reviews are recorded from RT's author pages ([Critics' Blogs](https://www
 ## Table of Contents
 
 - [Overview](#overview)  
-- [Features](#features)  
 - [Installation](#installation)  
 - [Usage](#usage)  
 - [Heuristics & Trading Notes](#heuristics--trading-notes)  
