@@ -34,13 +34,14 @@ pip install -r requirements.txt
 
 Required Python libraries:
 
-```python
-import functions
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from scipy.stats import beta, betabinom
-from scipy.special import betaln, comb
+```bash
+pip install numpy pandas matplotlib scipy
+```
+
+Or install from requirements.txt:
+
+```bash
+pip install -r requirements.txt
 ```
 
 Optional:
@@ -49,7 +50,19 @@ Optional:
 * `kalshi_client` for automated trading
 
 ## Usage
-All key functions are defined in `functions.py`. Example usages include:
+
+First, import the required modules:
+
+```python
+import Functions
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import beta, betabinom
+from scipy.special import betaln, comb
+```
+
+All key functions are defined in `Functions.py`. Example usages include:
 
 * Forecasting the probability that a movie exceeds a given RT score at contract expiry.
 * Simulating review arrival using Monte Carlo methods (with or without Bayesian updating).
